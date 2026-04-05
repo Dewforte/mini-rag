@@ -1,7 +1,7 @@
 """
 app.py — Dynamic RAG Web Application with Dual Output Comparison
 Framework : Streamlit
-LLM backend: GitHub Models  (https://models.inference.ai.azure.com)
+LLM backend: Google Gemini API  (https://ai.google.dev)
 """
 
 import base64
@@ -12,15 +12,15 @@ import fitz  # PyMuPDF
 import numpy as np
 import streamlit as st
 from dotenv import load_dotenv
-from openai import OpenAI
+from google import genai
+from google.genai import types
 from sentence_transformers import SentenceTransformer
 
 # ──────────────────────────── Configuration ────────────────────────────
 load_dotenv()
 
-GITHUB_TOKEN  : str = os.getenv("GITHUB_TOKEN", "")
-API_BASE_URL  : str = "https://models.inference.ai.azure.com"
-MODEL_NAME    : str = "gpt-4o"
+GEMINI_API_KEY : str = os.getenv("GEMINI_API_KEY", "")
+MODEL_NAME     : str = "gemini-2.5-flash"
 EMBED_MODEL   : str = "all-MiniLM-L6-v2"
 CHUNK_SIZE    : int = 500
 CHUNK_OVERLAP : int = 100
@@ -367,7 +367,7 @@ input:focus, textarea:focus {
 @st.cache_resource(show_spinner="Initialising neural engine…")
 def load_models():
     embed  = SentenceTransformer(EMBED_MODEL)
-    llm    = OpenAI(api_key=GITHUB_TOKEN, base_url=API_BASE_URL)
+    llm    = genai.Client(api_key=GEMINI_API_KEY)
     return embed, llm
 
 embed_model, client = load_models()
@@ -432,27 +432,31 @@ def answer_rag(question: str) -> tuple[str, list[str]]:
         "Do not use outside knowledge."
     )
     try:
-        r = client.chat.completions.create(
+        r = client.models.generate_content(
             model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user",   "content": f"Context:\n{context}\n\nQuestion: {question}"},
-            ],
-            temperature=0.2, max_tokens=600,
+            contents=f"Context:\n{context}\n\nQuestion: {question}",
+            config=types.GenerateContentConfig(
+                system_instruction=system,
+                temperature=0.2,
+                max_output_tokens=600,
+            ),
         )
-        return r.choices[0].message.content.strip(), retrieved
+        return r.text.strip(), retrieved
     except Exception as e:
         return f"[ERROR] RAG call failed: {e}", retrieved
 
 
 def get_llm_answer_bare(question: str) -> str:
     try:
-        r = client.chat.completions.create(
+        r = client.models.generate_content(
             model=MODEL_NAME,
-            messages=[{"role": "user", "content": question}],
-            temperature=0.7, max_tokens=600,
+            contents=question,
+            config=types.GenerateContentConfig(
+                temperature=1.0,
+                max_output_tokens=600,
+            ),
         )
-        return r.choices[0].message.content.strip()
+        return r.text.strip()
     except Exception as e:
         return f"[ERROR] LLM call failed: {e}"
 
